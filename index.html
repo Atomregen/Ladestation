@@ -13,13 +13,16 @@
         button:hover { background: #00a5c9; }
         button:disabled { background: #555; cursor: not-allowed; }
         
+        /* Spezieller Style für den Speicher-Button */
+        #saveBtn { background: #28a745; color: white; margin-top: 10px; }
+        #saveBtn:hover { background: #218838; }
+        
         .control-group { margin: 25px 0; text-align: left; }
         label { display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: bold; }
         
         input[type="color"] { width: 100%; height: 50px; border: none; cursor: pointer; border-radius: 8px; }
         select { width: 100%; padding: 10px; border-radius: 8px; border: none; background: #444; color: #fff; font-size: 16px; }
         
-        /* Slider Style */
         input[type="range"] { -webkit-appearance: none; width: 100%; height: 10px; border-radius: 5px; background: #444; outline: none; }
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 25px; height: 25px; border-radius: 50%; background: #00d2ff; cursor: pointer; }
         
@@ -63,6 +66,8 @@
         <input type="range" id="brightnessRange" min="0" max="255" value="128">
     </div>
 
+    <button id="saveBtn" disabled>💾 Einstellungen speichern</button>
+
     <p id="status">Nicht verbunden</p>
     
     <div class="license-footer">
@@ -78,6 +83,7 @@
 
     let device, server, service, characteristic;
     const connectBtn = document.getElementById('connectBtn');
+    const saveBtn = document.getElementById('saveBtn');
     const statusDisplay = document.getElementById('status');
     const colorPicker = document.getElementById('colorPicker');
     const modeSelect = document.getElementById('modeSelect');
@@ -90,7 +96,6 @@
         try {
             statusDisplay.innerText = "Suche Dr!ft Ladestation...";
             device = await navigator.bluetooth.requestDevice({
-                // Name im Filter muss mit Python '_advertise' übereinstimmen
                 filters: [{ name: 'Dr!ft_Lader' }],
                 optionalServices: [SERVICE_UUID]
             });
@@ -105,6 +110,7 @@
             statusDisplay.classList.add('connected-status');
             connectBtn.disabled = true;
             connectBtn.innerText = "Verbunden";
+            saveBtn.disabled = false; // Speicher Button aktivieren
 
             sendUpdate();
         } catch (error) {
@@ -113,11 +119,40 @@
         }
     });
 
+    saveBtn.addEventListener('click', async () => {
+        if (!characteristic) return;
+
+        // Protokoll: Modus 255 = SAVE Command
+        // Wir senden die anderen Werte trotzdem mit, falls der ESP sie braucht (tut er aktuell nicht)
+        const mode = 255;
+        const colorHex = colorPicker.value;
+        const [r, g, b] = hexToRgb(colorHex);
+        const speed = parseInt(speedRange.value);
+        const brightness = parseInt(brightnessRange.value);
+
+        const data = new Uint8Array([mode, r, g, b, speed, brightness]);
+
+        try {
+            await characteristic.writeValue(data);
+            
+            // Visuelles Feedback für den Button
+            const originalText = saveBtn.innerText;
+            saveBtn.innerText = "Gespeichert! ✅";
+            setTimeout(() => {
+                saveBtn.innerText = originalText;
+            }, 2000);
+            
+        } catch (e) {
+            console.log("Fehler beim Speichern:", e);
+        }
+    });
+
     function onDisconnected() {
         statusDisplay.innerText = "Verbindung verloren";
         statusDisplay.classList.remove('connected-status');
         connectBtn.disabled = false;
         connectBtn.innerText = "🔗 Verbinden";
+        saveBtn.disabled = true;
     }
 
     function hexToRgb(hex) {
@@ -140,7 +175,6 @@
         speedVal.innerText = Math.round((speed / 255) * 100) + "%";
         briVal.innerText = Math.round((brightness / 255) * 100) + "%";
 
-        // Datenpaket senden (6 Bytes)
         const data = new Uint8Array([mode, r, g, b, speed, brightness]);
 
         try {
