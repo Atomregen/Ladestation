@@ -13,14 +13,6 @@
 # 
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
 # --------------------------------------------------------------------------
 
 import bluetooth
@@ -29,11 +21,13 @@ import machine
 import neopixel
 import math
 import struct
+import json
 from micropython import const
 
 # --- Konfiguration ---
 PIN_LED = 4
 NUM_LEDS = 14
+CONFIG_FILE = "settings.json"
 np = neopixel.NeoPixel(machine.Pin(PIN_LED), NUM_LEDS)
 
 # --- BLE Konstanten ---
@@ -47,10 +41,39 @@ _UART_SERVICE = (_UART_UUID, (_UART_RX,),)
 
 # --- Globale Status-Variablen ---
 current_color = (255, 0, 0)
-current_mode = 4 
-current_speed = 128      # 0-255
-current_brightness = 128 # 0-255 (Standard: 50%)
+current_mode = 0 
+current_speed = 128
+current_brightness = 128
 connected = False
+
+# --- Speicher Funktionen ---
+def load_settings():
+    global current_mode, current_color, current_speed, current_brightness
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            data = json.load(f)
+            current_mode = data.get('mode', 0)
+            current_color = tuple(data.get('color', [255, 0, 0]))
+            current_speed = data.get('speed', 128)
+            current_brightness = data.get('brightness', 128)
+            print("Einstellungen geladen:", data)
+    except (OSError, ValueError):
+        print("Keine gespeicherten Einstellungen. Nutze Standards.")
+
+def save_settings():
+    # Speichert den aktuellen IST-Zustand
+    data = {
+        'mode': current_mode,
+        'color': current_color,
+        'speed': current_speed,
+        'brightness': current_brightness
+    }
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(data, f)
+        print("MANUELL GESPEICHERT!")
+    except Exception as e:
+        print("Fehler beim Speichern:", e)
 
 class BLEServer:
     def __init__(self):
@@ -85,18 +108,28 @@ class BLEServer:
 
     def _handle_command(self, data):
         global current_color, current_mode, current_speed, current_brightness
-        # Format: [Mode, R, G, B, Speed, Brightness] (6 Bytes)
+        
+        # Format: [Mode, R, G, B, Speed, Brightness]
         if len(data) >= 6:
             try:
-                current_mode = data[0]
+                cmd_mode = data[0]
+                
+                # --- SPEZIALBEFEHL 255: SPEICHERN ---
+                if cmd_mode == 255:
+                    save_settings()
+                    return # Funktion hier beenden, keine Werte ändern
+                
+                # Normales Update der Werte
+                current_mode = cmd_mode
                 current_color = (data[1], data[2], data[3])
                 current_speed = data[4]
                 current_brightness = data[5]
+                
             except Exception as e:
                 print("Parse Error:", e)
 
     def _advertise(self):
-        name = "Dr!ft_Lader" # Name gekürzt für BLE Limits
+        name = "Dr!ft_Lader"
         adv_data = bytearray(b'\x02\x01\x06') + bytearray((len(name) + 1, 0x09)) + name.encode('utf-8')
         self._ble.gap_advertise(100000, adv_data)
 
@@ -121,6 +154,7 @@ def wheel(pos):
 
 # --- Animations-Loop ---
 def run_animation():
+    load_settings() # Beim Start laden
     ble = BLEServer()
     
     head_pos = 0
