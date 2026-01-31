@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dr!ft Ladestation</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #fff; text-align: center; padding: 20px; }
+        h1 { color: #00d2ff; }
+        .container { max-width: 400px; margin: 0 auto; background: #2d2d2d; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        
+        button { background: #00d2ff; border: none; padding: 12px 24px; color: #000; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 16px; margin-bottom: 20px; width: 100%; transition: 0.2s; }
+        button:hover { background: #00a5c9; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        
+        .control-group { margin: 25px 0; text-align: left; }
+        label { display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: bold; }
+        
+        input[type="color"] { width: 100%; height: 50px; border: none; cursor: pointer; border-radius: 8px; }
+        select { width: 100%; padding: 10px; border-radius: 8px; border: none; background: #444; color: #fff; font-size: 16px; }
+        
+        /* Slider Style */
+        input[type="range"] { -webkit-appearance: none; width: 100%; height: 10px; border-radius: 5px; background: #444; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 25px; height: 25px; border-radius: 50%; background: #00d2ff; cursor: pointer; }
+        
+        #status { margin-top: 15px; font-size: 0.9em; color: #888; }
+        .connected-status { color: #00ff88 !important; }
+        .license-footer { margin-top: 30px; font-size: 0.7em; color: #555; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Dr!ft Ladestation</h1>
+    
+    <button id="connectBtn">🔗 Verbinden</button>
+    
+    <div class="control-group">
+        <label>Farbe:</label>
+        <input type="color" id="colorPicker" value="#ff0000">
+    </div>
+
+    <div class="control-group">
+        <label>Lichtmuster:</label>
+        <select id="modeSelect">
+            <option value="0">☄️ Komet (Kreisend)</option>
+            <option value="1">💡 Statisch (Max 50%)</option>
+            <option value="2">😮‍💨 Atmen (Sanft)</option>
+            <option value="3">💓 Herzschlag</option>
+            <option value="4">🌈 Regenbogen</option>
+            <option value="5">🚓 Polizei Strobe</option>
+            <option value="6">👀 Scanner (Ping Pong)</option>
+        </select>
+    </div>
+
+    <div class="control-group">
+        <label>Geschwindigkeit: <span id="speedVal">50%</span></label>
+        <input type="range" id="speedRange" min="0" max="255" value="128">
+    </div>
+
+    <div class="control-group">
+        <label>Helligkeit: <span id="briVal">50%</span></label>
+        <input type="range" id="brightnessRange" min="0" max="255" value="128">
+    </div>
+
+    <p id="status">Nicht verbunden</p>
+    
+    <div class="license-footer">
+        MIT License<br>
+        Copyright (c) 2026 Atomregen<br>
+        Dr!ft Ladestation Project
+    </div>
+</div>
+
+<script>
+    const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+    const CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+    let device, server, service, characteristic;
+    const connectBtn = document.getElementById('connectBtn');
+    const statusDisplay = document.getElementById('status');
+    const colorPicker = document.getElementById('colorPicker');
+    const modeSelect = document.getElementById('modeSelect');
+    const speedRange = document.getElementById('speedRange');
+    const speedVal = document.getElementById('speedVal');
+    const brightnessRange = document.getElementById('brightnessRange');
+    const briVal = document.getElementById('briVal');
+
+    connectBtn.addEventListener('click', async () => {
+        try {
+            statusDisplay.innerText = "Suche Dr!ft Ladestation...";
+            device = await navigator.bluetooth.requestDevice({
+                // Name im Filter muss mit Python '_advertise' übereinstimmen
+                filters: [{ name: 'Dr!ft_Lader' }],
+                optionalServices: [SERVICE_UUID]
+            });
+
+            device.addEventListener('gattserverdisconnected', onDisconnected);
+            statusDisplay.innerText = "Verbinde...";
+            server = await device.gatt.connect();
+            service = await server.getPrimaryService(SERVICE_UUID);
+            characteristic = await service.getCharacteristic(CHAR_UUID);
+
+            statusDisplay.innerText = "Verbunden!";
+            statusDisplay.classList.add('connected-status');
+            connectBtn.disabled = true;
+            connectBtn.innerText = "Verbunden";
+
+            sendUpdate();
+        } catch (error) {
+            console.error(error);
+            statusDisplay.innerText = "Fehler: " + error.message;
+        }
+    });
+
+    function onDisconnected() {
+        statusDisplay.innerText = "Verbindung verloren";
+        statusDisplay.classList.remove('connected-status');
+        connectBtn.disabled = false;
+        connectBtn.innerText = "🔗 Verbinden";
+    }
+
+    function hexToRgb(hex) {
+        const r = parseInt(hex.substr(1, 2), 16);
+        const g = parseInt(hex.substr(3, 2), 16);
+        const b = parseInt(hex.substr(5, 2), 16);
+        return [r, g, b];
+    }
+
+    async function sendUpdate() {
+        if (!characteristic) return;
+
+        const colorHex = colorPicker.value;
+        const [r, g, b] = hexToRgb(colorHex);
+        const mode = parseInt(modeSelect.value);
+        const speed = parseInt(speedRange.value);
+        const brightness = parseInt(brightnessRange.value);
+
+        // UI Updates
+        speedVal.innerText = Math.round((speed / 255) * 100) + "%";
+        briVal.innerText = Math.round((brightness / 255) * 100) + "%";
+
+        // Datenpaket senden (6 Bytes)
+        const data = new Uint8Array([mode, r, g, b, speed, brightness]);
+
+        try {
+            await characteristic.writeValue(data);
+        } catch (e) {
+            console.log("Fehler beim Senden:", e);
+        }
+    }
+
+    // Event Listeners
+    colorPicker.addEventListener('input', sendUpdate);
+    modeSelect.addEventListener('change', sendUpdate);
+    speedRange.addEventListener('input', sendUpdate);
+    brightnessRange.addEventListener('input', sendUpdate);
+
+</script>
+
+</body>
+</html>
